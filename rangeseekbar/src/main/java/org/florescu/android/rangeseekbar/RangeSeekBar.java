@@ -57,6 +57,7 @@ import java.math.BigDecimal;
  * @author Thomas Barrasso (tbarrasso@sevenplusandroid.org)
  * @author Alex Florescu (alex@florescu.org)
  * @author Michael Keppler (bananeweizen@gmx.de)
+ * @author Konstantyn Zakharchenko (ZakharchenkoWork@gmail.com)
  */
 public class RangeSeekBar<T extends Number> extends ImageView {
     /**
@@ -105,7 +106,7 @@ public class RangeSeekBar<T extends Number> extends ImageView {
     private OnRangeSeekBarChangeListener<T> listener;
 
     private float downMotionX;
-
+    private boolean isPressedBetween;
     private int activePointerId = INVALID_POINTER_ID;
 
     private int scaledTouchSlop;
@@ -436,9 +437,10 @@ public class RangeSeekBar<T extends Number> extends ImageView {
                 downMotionX = event.getX(pointerIndex);
 
                 pressedThumb = evalPressedThumb(downMotionX);
+                isPressedBetween = evalPressedBetweenThumb(downMotionX);
 
                 // Only handle thumb presses.
-                if (pressedThumb == null) {
+                if (pressedThumb == null && !isPressedBetween) {
                     return super.onTouchEvent(event);
                 }
 
@@ -450,7 +452,7 @@ public class RangeSeekBar<T extends Number> extends ImageView {
 
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (pressedThumb != null) {
+                if (pressedThumb != null || isPressedBetween) {
 
                     if (isDragging) {
                         trackTouchEvent(event);
@@ -458,7 +460,6 @@ public class RangeSeekBar<T extends Number> extends ImageView {
                         // Scroll to follow the motion event
                         pointerIndex = event.findPointerIndex(activePointerId);
                         final float x = event.getX(pointerIndex);
-
                         if (Math.abs(x - downMotionX) > scaledTouchSlop) {
                             setPressed(true);
                             invalidate();
@@ -471,6 +472,10 @@ public class RangeSeekBar<T extends Number> extends ImageView {
                     if (notifyWhileDragging && listener != null) {
                         listener.onRangeSeekBarValuesChanged(this, getSelectedMinValue(), getSelectedMaxValue());
                     }
+                }
+                // prevents scroll too far, when it's scrolling by pressing between thumbs
+                if (isPressedBetween) {
+                    downMotionX = event.getX();
                 }
                 break;
             case MotionEvent.ACTION_UP:
@@ -486,6 +491,7 @@ public class RangeSeekBar<T extends Number> extends ImageView {
                     onStopTrackingTouch();
                 }
 
+                isPressedBetween = false;
                 pressedThumb = null;
                 invalidate();
                 if (listener != null) {
@@ -511,6 +517,7 @@ public class RangeSeekBar<T extends Number> extends ImageView {
                 }
                 invalidate(); // see above explanation
                 break;
+        
         }
         return true;
     }
@@ -532,11 +539,12 @@ public class RangeSeekBar<T extends Number> extends ImageView {
     private void trackTouchEvent(MotionEvent event) {
         final int pointerIndex = event.findPointerIndex(activePointerId);
         final float x = event.getX(pointerIndex);
-
         if (Thumb.MIN.equals(pressedThumb) && !singleThumb) {
             setNormalizedMinValue(screenToNormalized(x));
         } else if (Thumb.MAX.equals(pressedThumb)) {
             setNormalizedMaxValue(screenToNormalized(x));
+        } else {
+            setValuesAround(x);
         }
     }
 
@@ -760,6 +768,39 @@ public class RangeSeekBar<T extends Number> extends ImageView {
     }
 
     /**
+     * Decides is it touched by the given x-coordinate between thumbs.
+     *
+     * @param touchX The x-coordinate of a touch event in screen space.
+     * @return true if it is pressed between thumb.
+     */
+    private boolean evalPressedBetweenThumb(float touchX) {
+        boolean result = false;
+        float minValue = normalizedToScreen(normalizedMinValue);
+        float maxValue = normalizedToScreen(normalizedMaxValue);
+
+        if (minValue < touchX && touchX < maxValue) {
+            result = true;
+        }
+        return result;
+    }
+
+    /**
+     * Drags both thumbs with the users touch
+     *
+     * @param touchX The x-coordinate of a touch event in screen space.
+     */
+    private void setValuesAround(float touchX) {
+        float minValue = normalizedToScreen(normalizedMinValue);
+        float maxValue = normalizedToScreen(normalizedMaxValue);
+        float move = touchX - downMotionX;
+
+        if (screenToNormalized(minValue + move) > 0 && screenToNormalized(maxValue + move) < 1) {
+            setNormalizedMinValue(screenToNormalized(minValue + move));
+            setNormalizedMaxValue(screenToNormalized(maxValue + move));
+        }
+    }
+
+    /**
      * Decides if given x-coordinate in screen space needs to be interpreted as "within" the normalized thumb x-coordinate.
      *
      * @param touchX               The x-coordinate in screen space to check.
@@ -912,5 +953,6 @@ public class RangeSeekBar<T extends Number> extends ImageView {
 
         void onRangeSeekBarValuesChanged(RangeSeekBar<T> bar, T minValue, T maxValue);
     }
+
 
 }
